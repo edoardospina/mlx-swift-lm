@@ -322,6 +322,42 @@ XGStatus xg_compile_json_schema(
     );
 }
 
+XGStatus xg_compile_json_schema_ex(
+    XGGrammarCompiler *compiler,
+    const char *schema_json,
+    int32_t any_whitespace,
+    int32_t indent,
+    const char *item_separator,
+    const char *key_separator,
+    int32_t strict_mode,
+    int32_t max_whitespace_cnt,
+    XGCompiledGrammar **out_compiled
+) {
+    if (compiler == nullptr) return XG_ERR_INTERNAL;
+    if ((item_separator == nullptr) != (key_separator == nullptr)) {
+        SetLastErrorMessage("xg_compile_json_schema_ex: item_separator and key_separator are both NULL or both set");
+        return XG_ERR_INVALID_ARG;
+    }
+    return CompileSchemaInto(
+        schema_json,
+        out_compiled,
+        XG_ERR_INVALID_JSON_SCHEMA,
+        [&](const std::string &s) {
+            std::optional<std::pair<std::string, std::string>> separators;
+            if (item_separator != nullptr) separators.emplace(item_separator, key_separator);
+            // xgrammar refuses a count <= 0 as a fatal error; here it is unbounded.
+            return compiler->inner.CompileJSONSchema(
+                s,
+                any_whitespace != 0,
+                indent < 0 ? std::nullopt : std::optional<int>(indent),
+                separators,
+                strict_mode != 0,
+                max_whitespace_cnt <= 0 ? std::nullopt : std::optional<int>(max_whitespace_cnt)
+            );
+        }
+    );
+}
+
 void xg_compiled_grammar_free(XGCompiledGrammar *compiled) {
     if (compiled == nullptr) return;
     delete compiled;

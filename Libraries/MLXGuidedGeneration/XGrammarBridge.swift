@@ -233,12 +233,64 @@ public final class GrammarConstraint: @unchecked Sendable {
     /// `lock`; observers go through `fastForwardDisagreementCount`.
     private var _fastForwardDisagreementCount: Int = 0
 
+    /// How xgrammar compiles a JSON Schema: the options of
+    /// `GrammarCompiler::CompileJSONSchema`. The defaults are xgrammar's,
+    /// the grammar `xg_compile_json_schema` compiles.
+    public struct JSONSchemaOptions: Sendable, Equatable {
+        /// The separator between two items and between a key and its value.
+        public struct Separators: Sendable, Equatable {
+            public var item: String
+            public var key: String
+
+            public init(item: String, key: String) {
+                self.item = item
+                self.key = key
+            }
+        }
+
+        /// `true`: any run of whitespace between two tokens, so a model
+        /// may lay its JSON out as it writes it. `false`: the layout
+        /// `indent` and `separators` fix.
+        public var anyWhitespace: Bool
+        /// The most whitespace characters in each gap between two
+        /// tokens, read only when `anyWhitespace` is `true`; `nil`, or
+        /// a count of 0 or less, is any number. A model whose favourite
+        /// token the grammar refuses can otherwise take whitespace step
+        /// after step until its token limit.
+        public var maxWhitespaceCount: Int?
+        /// The spaces each nesting level indents, with a newline before
+        /// each member and item; `nil` is no newlines. Read only when
+        /// `anyWhitespace` is `false`.
+        public var indent: Int?
+        /// `nil`: xgrammar's defaults. Read only when `anyWhitespace` is
+        /// `false`, since xgrammar then uses `,` and `:`.
+        public var separators: Separators?
+        /// `true`: no property or item the schema does not name.
+        public var strictMode: Bool
+
+        public init(
+            anyWhitespace: Bool = true,
+            maxWhitespaceCount: Int? = nil,
+            indent: Int? = nil,
+            separators: Separators? = nil,
+            strictMode: Bool = true
+        ) {
+            self.anyWhitespace = anyWhitespace
+            self.maxWhitespaceCount = maxWhitespaceCount
+            self.indent = indent
+            self.separators = separators
+            self.strictMode = strictMode
+        }
+    }
+
     /// Compile a JSON Schema string into a grammar matcher.
     ///
     /// - Parameters:
     ///   - tokenizer: The tokenizer the grammar binds to. Must outlive
     ///     this constraint; a Swift reference is retained here.
     ///   - jsonSchema: A standard JSON Schema source string.
+    ///   - options: How xgrammar compiles `jsonSchema`. Defaults to
+    ///     xgrammar's own options.
     ///   - fastForward: When `true`, `commitToken` emits the tokens
     ///     produced by xgrammar's `FindJumpForwardString` on every
     ///     successful commit (requires `hostTokenizer`). Defaults to
@@ -251,6 +303,7 @@ public final class GrammarConstraint: @unchecked Sendable {
     public init(
         tokenizer: GrammarTokenizer,
         jsonSchema: String,
+        options: JSONSchemaOptions = JSONSchemaOptions(),
         fastForward: Bool = false,
         hostTokenizer: (any Tokenizer)? = nil
     ) throws {
@@ -272,12 +325,24 @@ public final class GrammarConstraint: @unchecked Sendable {
 
         var compiledPtr: OpaquePointer?
         let compileStatus = jsonSchema.withCString { schemaPtr in
-            xg_compile_json_schema(compilerHandle, schemaPtr, &compiledPtr)
+            Self.withSeparators(options.separators) { itemPtr, keyPtr in
+                xg_compile_json_schema_ex(
+                    compilerHandle,
+                    schemaPtr,
+                    options.anyWhitespace ? 1 : 0,
+                    options.indent.map { Int32(clamping: $0) } ?? -1,
+                    itemPtr,
+                    keyPtr,
+                    options.strictMode ? 1 : 0,
+                    options.maxWhitespaceCount.map { Int32(clamping: $0) } ?? 0,
+                    &compiledPtr
+                )
+            }
         }
         guard compileStatus == XG_OK, let compiledHandle = compiledPtr else {
             xg_grammar_compiler_free(compilerHandle)
             let message = Self.captureShimError(
-                status: compileStatus, fallback: "xg_compile_json_schema"
+                status: compileStatus, fallback: "xg_compile_json_schema_ex"
             )
             // Discriminate user-schema errors from generic compile
             // failures. xgrammar's typed exceptions map 1:1 to
@@ -755,6 +820,18 @@ public final class GrammarConstraint: @unchecked Sendable {
             return String(cString: cstr)
         }
         return "\(fallback) returned status \(status)"
+    }
+
+    /// Call `body` with the NUL-terminated item and key separators, or
+    /// two NULLs when `separators` is `nil`, valid for its duration.
+    private static func withSeparators<R>(
+        _ separators: JSONSchemaOptions.Separators?,
+        _ body: (UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> R
+    ) -> R {
+        guard let separators else { return body(nil, nil) }
+        return separators.item.withCString { itemPtr in
+            separators.key.withCString { keyPtr in body(itemPtr, keyPtr) }
+        }
     }
 }
 

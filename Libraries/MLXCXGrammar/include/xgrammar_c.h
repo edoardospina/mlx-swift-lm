@@ -195,6 +195,45 @@ XGStatus xg_compile_json_schema(
 );
 
 /*
+ * `xg_compile_json_schema` with every option of
+ * `xgrammar::GrammarCompiler::CompileJSONSchema`, in its order.
+ * `xg_compile_json_schema` is this call with any_whitespace=1,
+ * indent=-1, both separators NULL, strict_mode=1 and
+ * max_whitespace_cnt=0.
+ *
+ *   any_whitespace     -- nonzero: any run of whitespace between two
+ *                         tokens; zero: the layout `indent` and the
+ *                         separators fix.
+ *   indent             -- < 0: no newlines; >= 0: newlines indented by
+ *                         that many spaces per level. Read only when
+ *                         any_whitespace is zero.
+ *   item_separator,
+ *   key_separator      -- both NULL: xgrammar's defaults; otherwise
+ *                         both non-NULL. Read only when any_whitespace
+ *                         is zero, since xgrammar then uses "," and ":".
+ *   strict_mode        -- nonzero: no property or item the schema does
+ *                         not name.
+ *   max_whitespace_cnt -- > 0: at most that many whitespace characters
+ *                         in each gap between two tokens; <= 0: any
+ *                         number. Read only when any_whitespace is
+ *                         nonzero.
+ *
+ * Exactly one separator NULL returns `XG_ERR_INVALID_ARG`. Otherwise
+ * it fails as `xg_compile_json_schema` does.
+ */
+XGStatus xg_compile_json_schema_ex(
+    XGGrammarCompiler *compiler,
+    const char *schema_json,
+    int32_t any_whitespace,
+    int32_t indent,
+    const char *item_separator,
+    const char *key_separator,
+    int32_t strict_mode,
+    int32_t max_whitespace_cnt,
+    XGCompiledGrammar **out_compiled
+);
+
+/*
  * Release a handle returned by `xg_compile_json_schema`. Safe to call
  * with a NULL pointer.
  */
